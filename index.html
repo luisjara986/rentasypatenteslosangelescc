@@ -1,0 +1,1855 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Registro, Credenciales y Fiscalización - Sección Rentas y Patentes</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code Generator & Scanner -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Firebase SDK Compat v9 (Firestore & Auth) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --muni-blue: #0d3b66;
+            --muni-gold: #d4af37;
+            --muni-red: #c0392b;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: #f3f4f6;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white !important; }
+            .credencial-print-box {
+                page-break-inside: avoid;
+            }
+        }
+        .print-only { display: none; }
+        
+        /* Contenedores de Credenciales */
+        .credencial-card {
+            width: 338px;
+            height: 213px;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            background-size: cover;
+            background-position: center;
+            font-size: 11px;
+            color: #1e293b;
+        }
+        .credencial-card.ambulante {
+            background: linear-gradient(135deg, #ffffff 0%, #e0f2fe 100%);
+            border: 2px solid #0284c7;
+        }
+        .credencial-card.estacionado {
+            background: linear-gradient(135deg, #ffffff 0%, #fef3c7 100%);
+            border: 2px solid #d97706;
+        }
+        .credencial-card.ferias {
+            background: linear-gradient(135deg, #ffffff 0%, #dcfce7 100%);
+            border: 2px solid #16a34a;
+        }
+        .credencial-card.esporadicas {
+            background: linear-gradient(135deg, #ffffff 0%, #f3e8ff 100%);
+            border: 2px solid #9333ea;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col pb-16 md:pb-0">
+
+    <!-- Pantalla de Login (Obligatoria si no hay sesión activa) -->
+    <div id="loginScreen" class="fixed inset-0 bg-[#0d3b66] z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 space-y-6">
+            <div class="text-center space-y-2">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Escudo_de_Los_%C3%81ngeles_%28Chile%29.svg" alt="Escudo Los Ángeles" class="h-20 mx-auto drop-shadow">
+                <h1 class="text-xl font-bold text-slate-900">I. Municipalidad de Los Ángeles</h1>
+                <p class="text-xs font-semibold text-amber-600 uppercase tracking-wider">Sección de Rentas y Patentes</p>
+                <p class="text-xs text-slate-500">Sistema Integral de Fiscalización y Credenciales</p>
+            </div>
+
+            <form onsubmit="iniciarSesion(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nombre de Usuario</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-3 top-3 text-slate-400"></i>
+                        <input type="text" id="loginUsuario" required placeholder="Ej: admin / inspector" class="w-full pl-9 pr-3 py-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-3 top-3 text-slate-400"></i>
+                        <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full pl-9 pr-3 py-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                    </div>
+                </div>
+
+                <div id="loginErrorMsg" class="hidden text-xs text-red-600 font-bold text-center bg-red-50 p-2 rounded-lg border border-red-200">
+                    Usuario o contraseña incorrectos.
+                </div>
+
+                <button type="submit" class="w-full py-3 bg-[#0d3b66] hover:bg-blue-900 text-white font-bold rounded-lg text-sm transition shadow flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión
+                </button>
+            </form>
+
+            <div class="bg-slate-50 p-3 rounded-lg text-[11px] text-slate-500 space-y-1 border">
+                <p class="font-bold text-slate-700">Credenciales de Acceso DEMO:</p>
+                <p>• <strong>Administrador:</strong> admin / admin123 (Acceso total, credenciales y reportes)</p>
+                <p>• <strong>Registrador:</strong> f_perez / perez123 (Comerciantes, credenciales y notificaciones)</p>
+                <p>• <strong>Inspector:</strong> inspector / inspector123 (Fiscalización por QR/RUT)</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header / Navbar Principal -->
+    <header class="bg-[#0d3b66] text-white shadow-lg sticky top-0 z-40 no-print">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Escudo_de_Los_%C3%81ngeles_%28Chile%29.svg" alt="Escudo Los Ángeles" class="h-12 w-auto drop-shadow">
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">I. Municipalidad de Los Ángeles</h1>
+                    <p class="text-xs text-amber-300 font-medium tracking-wide">Sección de Rentas y Patentes</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-3">
+                <span id="syncStatus" class="text-xs px-2.5 py-1 rounded-full bg-emerald-800 text-emerald-200 flex items-center gap-1">
+                    <i class="fa-solid fa-circle-check text-[10px]"></i> Sistema Conectado
+                </span>
+                
+                <div class="hidden sm:flex flex-col text-right">
+                    <span id="navUserName" class="text-xs font-bold">Cargando...</span>
+                    <span id="navUserRole" class="text-[10px] text-amber-300 uppercase font-semibold">-</span>
+                </div>
+
+                <button onclick="toggleUserMenu()" class="p-2 rounded-lg bg-blue-900/60 hover:bg-blue-800 text-white transition flex items-center gap-1.5 text-xs font-semibold">
+                    <i class="fa-solid fa-user-gear"></i> Perfil
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Sub-Header / Menu Desplegable Perfil -->
+    <div id="userMenuModal" class="hidden fixed inset-0 bg-black/50 z-50 flex justify-end p-4 no-print" onclick="toggleUserMenu()">
+        <div class="bg-white text-slate-800 rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-4 self-start mt-12" onclick="event.stopPropagation()">
+            <div class="border-b pb-3 flex justify-between items-center">
+                <div>
+                    <h3 id="modalUserName" class="font-bold text-base text-slate-900">Usuario</h3>
+                    <p id="modalUserRole" class="text-xs text-slate-500 uppercase">Rol</p>
+                </div>
+                <button onclick="toggleUserMenu()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-2">
+                <button onclick="openChangePasswordModal()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 text-sm font-medium flex items-center gap-2">
+                    <i class="fa-solid fa-key text-amber-600"></i> Cambiar Mi Contraseña
+                </button>
+                <div id="adminUserMgmtBtn" class="hidden">
+                    <button onclick="switchTab('usuarios')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 text-sm font-medium flex items-center gap-2">
+                        <i class="fa-solid fa-users-gear text-blue-600"></i> Administrar Usuarios y Accesos
+                    </button>
+                </div>
+                <button onclick="openConfigModal()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 text-sm font-medium flex items-center gap-2">
+                    <i class="fa-solid fa-fire text-amber-600"></i> Configuración Firebase / Nube
+                </button>
+                <button onclick="logout()" class="w-full text-left px-3 py-2.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-bold text-sm flex items-center gap-2 border border-red-200 mt-3 transition">
+                    <i class="fa-solid fa-right-from-bracket text-base"></i> Cerrar Sesión del Funcionario
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Layout Principal -->
+    <div class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full grid grid-cols-1 md:grid-cols-12 gap-6">
+
+        <!-- Sidebar Lateral (Escritorio) -->
+        <aside class="hidden md:block md:col-span-3 space-y-4 no-print">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-1">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Módulos del Sistema</p>
+                
+                <button onclick="switchTab('fiscalizar')" id="sideNavFiscalizar" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-qrcode text-lg w-6 text-center"></i> Fiscalizar / Escanear
+                </button>
+                
+                <button onclick="switchTab('directorio')" id="sideNavDirectorio" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-address-book text-lg w-6 text-center"></i> Directorio Comerciantes
+                </button>
+
+                <button onclick="switchTab('credenciales')" id="sideNavCredenciales" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-id-card text-lg w-6 text-center text-amber-600"></i> Generar Credenciales
+                </button>
+
+                <button onclick="switchTab('disenoCredenciales')" id="sideNavDiseno" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-palette text-lg w-6 text-center text-purple-600"></i> Diseño de Credenciales
+                </button>
+                
+                <button onclick="switchTab('reportes')" id="sideNavReportes" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-[#0d3b66] fa-file-excel text-lg w-6 text-center text-emerald-600"></i> Reportes y Excel
+                </button>
+
+                <button onclick="switchTab('notificaciones')" id="sideNavNotificaciones" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-paper-plane text-lg w-6 text-center text-blue-600"></i> Avisos Vencimiento
+                </button>
+                
+                <button onclick="switchTab('historial')" id="sideNavHistorial" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-clock-rotate-left text-lg w-6 text-center"></i> Historial Actuaciones
+                </button>
+                
+                <button onclick="switchTab('usuarios')" id="sideNavUsuarios" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-sm text-slate-700 hover:bg-blue-50 hover:text-[#0d3b66] transition">
+                    <i class="fa-solid fa-users text-lg w-6 text-center"></i> Control de Usuarios
+                </button>
+
+                <div class="pt-4 border-t">
+                    <button onclick="logout()" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-bold text-sm text-red-600 bg-red-50 hover:bg-red-100 transition">
+                        <i class="fa-solid fa-right-from-bracket text-lg w-6 text-center"></i> Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card PWA -->
+            <div class="bg-gradient-to-br from-[#0d3b66] to-blue-900 text-white rounded-xl p-4 shadow-sm space-y-3">
+                <div class="flex items-center gap-2 text-amber-300 font-semibold text-sm">
+                    <i class="fa-solid fa-mobile-screen-button"></i> App Móvil Terreno PWA
+                </div>
+                <p class="text-xs text-blue-100">Instala esta aplicación en Android o iPhone para inspecciones con cámara de escaneo QR en terreno.</p>
+                <button onclick="installPWA()" class="w-full py-2 bg-amber-400 hover:bg-amber-300 text-slate-900 rounded-lg font-bold text-xs transition shadow flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-download"></i> Instalar App Móvil
+                </button>
+            </div>
+        </aside>
+
+        <!-- Contenido Dinámico de Pestañas -->
+        <main class="col-span-1 md:col-span-9 space-y-6">
+
+            <!-- Pestaña 1: Fiscalización y Búsqueda por RUT / QR -->
+            <section id="tabFiscalizar" class="space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
+                        <i class="fa-solid fa-qrcode text-[#0d3b66]"></i> Consulta y Fiscalización en Terreno
+                    </h2>
+                    <p class="text-xs text-slate-500 mb-4">Escanee el código QR de la credencial o ingrese el RUT del comerciante para verificar la validez del permiso.</p>
+
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <div class="relative flex-grow">
+                            <i class="fa-solid fa-search absolute left-3 top-3.5 text-slate-400"></i>
+                            <input type="text" id="inputRutSearch" placeholder="Ingrese RUT del Comerciante (ej: 15.420.890-K)" class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-[#0d3b66] focus:border-transparent outline-none font-mono text-sm">
+                        </div>
+                        <button onclick="buscarPorRut()" class="px-6 py-2.5 bg-[#0d3b66] text-white font-semibold rounded-lg hover:bg-blue-900 transition flex items-center justify-center gap-2 text-sm shadow">
+                            <i class="fa-solid fa-magnifying-glass"></i> Consultar
+                        </button>
+                        <button onclick="toggleScanner()" class="px-5 py-2.5 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition flex items-center justify-center gap-2 text-sm shadow">
+                            <i class="fa-solid fa-camera"></i> Escanear QR
+                        </button>
+                    </div>
+
+                    <div id="scannerContainer" class="hidden mt-4 p-4 border-2 border-dashed border-emerald-400 rounded-xl bg-emerald-50 text-center space-y-2">
+                        <p class="text-xs font-semibold text-emerald-800">Apunta con la cámara al código QR de la credencial</p>
+                        <div id="reader" class="max-w-xs mx-auto rounded-lg overflow-hidden border"></div>
+                        <button onclick="toggleScanner()" class="text-xs text-red-600 font-semibold hover:underline mt-2">Cancelar Escaneo</button>
+                    </div>
+                </div>
+
+                <!-- Ficha de Comerciante / Inspección -->
+                <div id="searchResultCard" class="hidden bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                    <div class="bg-[#0d3b66] text-white px-6 py-4 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Escudo_de_Los_%C3%81ngeles_%28Chile%29.svg" class="h-10 w-auto bg-white/10 p-1 rounded">
+                            <div>
+                                <h3 class="font-bold text-base">Ficha Municipal de Comerciante</h3>
+                                <p class="text-xs text-amber-300">Sección Rentas y Patentes — Los Ángeles</p>
+                            </div>
+                        </div>
+                        <span id="badgeEstadoResultado" class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500 text-white shadow">
+                            VIGENTE
+                        </span>
+                    </div>
+
+                    <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="flex flex-col items-center text-center border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
+                            <img id="resFoto" src="https://via.placeholder.com/150" class="w-32 h-32 rounded-xl object-cover border-4 border-slate-100 shadow mb-3">
+                            <h4 id="resNombre" class="font-bold text-slate-900 text-base">Juan Pérez</h4>
+                            <p id="resRut" class="text-sm font-mono text-slate-500 font-semibold">12.345.678-9</p>
+                            <span id="resTipoPermisoBadge" class="mt-2 px-2.5 py-1 bg-blue-100 text-blue-900 text-[10px] font-bold rounded-full uppercase">Comerciante Ambulante</span>
+                            
+                            <div class="mt-3 w-full bg-slate-50 p-3 rounded-lg text-left text-xs space-y-1">
+                                <p><strong class="text-slate-600">N° Permiso:</strong> <span id="resNumPermiso">PERM-2026-001</span></p>
+                                <p><strong class="text-slate-600">Teléfono:</strong> <span id="resTelefono">+56 9 8765 4321</span></p>
+                                <p><strong class="text-slate-600">Sindicato:</strong> <span id="resSindicato">Sindicato #1</span></p>
+                                <p><strong class="text-slate-600">Productos Autorizados:</strong> <span id="resRubro">Frutas y Verduras</span></p>
+                                <p><strong class="text-slate-600">Ubicación Autorizada:</strong> <span id="resUbicacion">Sector Centro</span></p>
+                                <p><strong class="text-slate-600">Vencimiento:</strong> <span id="resVencimiento">31/12/2026</span></p>
+                            </div>
+
+                            <button onclick="generarCredencialIndividualDesdeFicha()" class="mt-3 w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-id-card"></i> Ver Credencial Oficial
+                            </button>
+                        </div>
+
+                        <div class="col-span-1 md:col-span-2 space-y-4">
+                            <h4 class="font-bold text-sm text-slate-800 border-b pb-2 flex items-center justify-between">
+                                <span><i class="fa-solid fa-clipboard-check text-[#0d3b66]"></i> Registrar Nueva Actuación de Fiscalización</span>
+                                <span class="text-xs text-slate-400 font-normal">Acción Oficial</span>
+                            </h4>
+
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Resultado de la Inspección</label>
+                                    <select id="selectResultadoFisc" class="w-full p-2.5 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-[#0d3b66] outline-none">
+                                        <option value="CONFORME">CONFORME - Cumple normativa y delimitación autorizada</option>
+                                        <option value="OBSERVACIONES">CON OBSERVACIONES - Notificación menor / regularizar plazo</option>
+                                        <option value="NOTIFICADO">NOTIFICADO - Citación a Juzgado de Policía Local</option>
+                                        <option value="INFRACCIONADO">INFRACCIONADO - Suspensión o decomiso por falta grave</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Observaciones / Incidencias Detectadas</label>
+                                    <textarea id="txtObservacionFisc" rows="3" placeholder="Detalle observaciones, delimitación del puesto o anomalías..." class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]"></textarea>
+                                </div>
+
+                                <div class="flex flex-wrap gap-2 pt-2">
+                                    <button onclick="guardarFiscalizacion()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition flex items-center gap-2 shadow">
+                                        <i class="fa-solid fa-floppy-disk"></i> Registrar Fiscalización
+                                    </button>
+                                    <button onclick="imprimirActaFiscalizacion()" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-xs transition flex items-center gap-2">
+                                        <i class="fa-solid fa-print"></i> Generar Acta / Reporte
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 border-t pt-4">
+                                <h5 class="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider">Hoja de Vida — Fiscalizaciones Anteriores</h5>
+                                <div id="resHistorialIndividual" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                    <!-- Carga dinámica -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña 2: Directorio General de Comerciantes -->
+            <section id="tabDirectorio" class="hidden space-y-4">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Directorio General de Comerciantes</h2>
+                            <p class="text-xs text-slate-500">Nómina oficial de permisos aprobados y formalizados.</p>
+                        </div>
+                        <button onclick="prepararFormularioNuevo()" id="btnNuevoComercianteTop" class="px-4 py-2 bg-[#0d3b66] text-white text-xs font-bold rounded-lg hover:bg-blue-900 transition flex items-center gap-2 shadow">
+                            <i class="fa-solid fa-plus"></i> Registrar Nuevo Comerciante
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-700 uppercase text-[10px] font-bold border-b">
+                                <tr>
+                                    <th class="p-3">Comerciante</th>
+                                    <th class="p-3">RUT / N° Permiso</th>
+                                    <th class="p-3">Categoría Permiso</th>
+                                    <th class="p-3">Rubro / Ubicación</th>
+                                    <th class="p-3">Estado Permiso</th>
+                                    <th class="p-3 text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableComerciantesBody" class="divide-y divide-slate-100">
+                                <!-- Carga dinámica -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña 3: Registro y Edición de Comerciantes -->
+            <section id="tabRegistro" class="hidden">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto space-y-4">
+                    <h2 class="text-lg font-bold text-slate-900 border-b pb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-user-plus text-[#0d3b66]"></i> <span id="formComercianteTitulo">Registro Oficial de Comerciante</span>
+                    </h2>
+
+                    <form id="formNuevoComerciante" onsubmit="guardarComerciante(event)" class="space-y-4">
+                        <input type="hidden" id="editComercianteRutOriginal" value="">
+                        
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                                <input type="text" id="regNombre" required placeholder="Ej: María González López" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">RUT (Identificador Principal) *</label>
+                                <input type="text" id="regRut" required placeholder="Ej: 14.890.123-5" class="w-full p-2.5 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Categoría de Permiso Otorgado *</label>
+                                <select id="regTipoPermiso" required class="w-full p-2.5 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                                    <option value="ambulante">Comerciante Ambulante</option>
+                                    <option value="estacionado">Comerciante Estacionado</option>
+                                    <option value="ferias">Comerciante Autorizado para Ferias</option>
+                                    <option value="esporadicas">Actividades Esporádicas</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Número de Permiso / Decreto *</label>
+                                <input type="text" id="regNumPermiso" required placeholder="Ej: PERM-2026-045" class="w-full p-2.5 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Teléfono Móvil (WhatsApp/SMS) *</label>
+                                <input type="text" id="regTelefono" required placeholder="Ej: +56 9 1234 5678" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Dirección Particular</label>
+                                <input type="text" id="regDireccion" placeholder="Ej: Av. Ricardo Vicuña #123" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Nombre del Sindicato (si aplica)</label>
+                                <input type="text" id="regSindicato" placeholder="Ej: Sindicato Comerciantes Ambulantes #1" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Ubicación / Puesto Autorizado *</label>
+                                <input type="text" id="regUbicacion" required placeholder="Ej: Plaza de Armas Stand 14 / Sector Centro" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Productos Autorizados para Venta *</label>
+                            <input type="text" id="regProductos" required placeholder="Ej: Artesanías en Madera, Frutas y Verduras, Ropa" class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Estado Administrativo *</label>
+                                <select id="regEstado" class="w-full p-2.5 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                                    <option value="VIGENTE">VIGENTE</option>
+                                    <option value="PENDIENTE_RENOVACION">PENDIENTE DE RENOVACIÓN</option>
+                                    <option value="VENCIDO">VENCIDO / NO RENOVADO</option>
+                                    <option value="SUSPENDIDO">SUSPENDIDO / REVOCADO</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Fecha Emisión *</label>
+                                <input type="date" id="regEmision" required class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Fecha Vencimiento *</label>
+                                <input type="date" id="regVencimiento" required class="w-full p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="block text-xs font-bold text-slate-700">Fotografía Oficial del Comerciante</label>
+                            <div class="flex flex-col sm:flex-row gap-3 items-center">
+                                <input type="text" id="regFoto" placeholder="URL o datos de la imagen" class="flex-grow p-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                                <label class="cursor-pointer px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition flex items-center gap-2">
+                                    <i class="fa-solid fa-camera"></i> Tomar / Cargar Foto
+                                    <input type="file" id="fileFotoInput" accept="image/*" class="hidden" onchange="cargarFotografiaArchivo(event)">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 flex gap-3">
+                            <button type="submit" class="flex-1 py-3 bg-[#0d3b66] hover:bg-blue-900 text-white font-bold rounded-lg text-sm transition shadow flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-floppy-disk"></i> <span id="btnGuardarComercianteTxt">Guardar Registro</span>
+                            </button>
+                            <button type="button" onclick="switchTab('directorio')" class="px-5 py-3 border border-slate-300 text-slate-600 font-semibold rounded-lg text-sm hover:bg-slate-50">
+                                Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Pestaña MÓDULO 1 & 2 & 3: Generación e Impresión de Credenciales -->
+            <section id="tabCredenciales" class="hidden space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-id-card text-amber-600"></i> Generación e Impresión de Credenciales Oficiales
+                            </h2>
+                            <p class="text-xs text-slate-500">Emisión de credenciales con código QR, anverso y reverso personalizados según categoría de permiso.</p>
+                        </div>
+                        
+                        <div class="flex gap-2">
+                            <button onclick="imprimirCredencialSeleccionada()" class="px-4 py-2 bg-[#0d3b66] hover:bg-blue-900 text-white text-xs font-bold rounded-lg shadow flex items-center gap-2">
+                                <i class="fa-solid fa-print"></i> Imprimir Credencial Vista
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Selector de Comerciante para Credencial -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border">
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Seleccionar Comerciante Autorizado:</label>
+                            <select id="selectComercianteCredencial" onchange="renderizarCredencialVista()" class="w-full p-2.5 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#0d3b66]">
+                                <!-- Opciones cargadas dinámicamente -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Modo de Impresión:</label>
+                            <select id="selectModoImpresion" class="w-full p-2.5 border rounded-lg text-sm bg-white outline-none">
+                                <option value="ambos">Anverso + Reverso (Doble Cara)</option>
+                                <option value="anverso">Solo Anverso</option>
+                                <option value="reverso">Solo Reverso</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Visualizador de Credencial (Anverso y Reverso) -->
+                    <div class="pt-4 flex flex-col md:flex-row items-center justify-center gap-8">
+                        
+                        <!-- Lado ANVERSO -->
+                        <div class="space-y-2 text-center">
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">ANVERSO (FRENTE)</span>
+                            <div id="credencialAnversoPreview" class="credencial-card ambulante p-3 flex flex-col justify-between mx-auto border shadow-md">
+                                <!-- Encabezado con Escudo Institucional -->
+                                <div class="flex items-center justify-between border-b border-slate-300/80 pb-1.5">
+                                    <div class="flex items-center gap-1.5">
+                                        <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Escudo_de_Los_%C3%81ngeles_%28Chile%29.svg" class="h-8 w-auto">
+                                        <div class="text-left">
+                                            <p class="font-black text-[9px] uppercase leading-none text-[#0d3b66]">I. MUNICIPALIDAD DE LOS ÁNGELES</p>
+                                            <p class="text-[7.5px] font-semibold text-slate-600 leading-tight">SECCIÓN RENTAS Y PATENTES</p>
+                                        </div>
+                                    </div>
+                                    <span id="credTipoEtiqueta" class="px-2 py-0.5 bg-[#0d3b66] text-white text-[8px] font-black rounded uppercase">AMBULANTE</span>
+                                </div>
+
+                                <!-- Cuerpo con Foto y Datos -->
+                                <div class="grid grid-cols-12 gap-2 my-1 text-left items-center">
+                                    <div class="col-span-4 text-center">
+                                        <img id="credFoto" src="https://via.placeholder.com/150" class="w-20 h-24 rounded-lg object-cover border-2 border-white shadow-sm mx-auto">
+                                        <p id="credNumPermiso" class="text-[8px] font-mono font-bold text-slate-700 mt-1">PERM-2026-000</p>
+                                    </div>
+                                    <div class="col-span-8 space-y-0.5 pr-1 text-[9px]">
+                                        <p class="font-black text-[11px] text-slate-900 leading-tight" id="credNombre">NOMBRE DEL COMERCIANTE</p>
+                                        <p class="font-mono font-bold text-slate-600 text-[10px]" id="credRut">RUT: 12.345.678-9</p>
+                                        <p class="text-slate-700"><strong>Rubro:</strong> <span id="credRubro">Frutas y Verduras</span></p>
+                                        <p class="text-slate-700"><strong>Ubicación:</strong> <span id="credUbicacion">Sector Centro</span></p>
+                                        <p class="text-slate-700"><strong>Sindicato:</strong> <span id="credSindicato">Sindicato #1</span></p>
+                                    </div>
+                                </div>
+
+                                <!-- Pie con Fechas y Código QR Único -->
+                                <div class="flex items-center justify-between border-t border-slate-300/80 pt-1 text-[8px]">
+                                    <div>
+                                        <p class="text-slate-500">Emisión: <span id="credEmision" class="font-bold text-slate-700">01/01/2026</span></p>
+                                        <p class="text-slate-500">Vencimiento: <span id="credVencimiento" class="font-bold text-emerald-700">31/12/2026</span></p>
+                                    </div>
+                                    <div id="credQrContainer" class="bg-white p-1 rounded border shadow-sm flex items-center justify-center">
+                                        <!-- QR Dinámico -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lado REVERSO -->
+                        <div class="space-y-2 text-center">
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">REVERSO (DORSO OFICIAL)</span>
+                            <div id="credencialReversoPreview" class="credencial-card p-4 bg-slate-900 text-slate-100 flex flex-col justify-between mx-auto border shadow-md text-left">
+                                <div class="border-b border-slate-700 pb-1">
+                                    <p class="text-[9px] font-black uppercase text-amber-400">CONDICIONES DE USO Y OBLIGACIONES</p>
+                                    <p class="text-[7px] text-slate-300">I. MUNICIPALIDAD DE LOS ÁNGELES</p>
+                                </div>
+
+                                <div id="credReversoTexto" class="text-[8px] space-y-1 text-slate-200 leading-tight my-1">
+                                    <p>1. Esta credencial es personal e transferible y debe portarse en un lugar visible durante el ejercicio de la actividad comercial.</p>
+                                    <p>2. Válida exclusivamente para el rubro y ubicación autorizados por el Decreto Municipal respectivo.</p>
+                                    <p>3. Los inspectores municipales o Carabineros de Chile podrán requerir su presentación en cualquier momento.</p>
+                                    <p>4. La adulteración o mal uso acarreará la revocación inmediata del permiso y citación al Juzgado de Policía Local.</p>
+                                </div>
+
+                                <div class="border-t border-slate-700 pt-1 flex justify-between items-center text-[7.5px] text-slate-400">
+                                    <span>Verificación segura por Código QR</span>
+                                    <span class="font-mono">Sección Rentas y Patentes</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña MÓDULO 2: Personalización y Diseño de Formatos de Credencial -->
+            <section id="tabDisenoCredenciales" class="hidden space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex justify-between items-center border-b pb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-palette text-purple-600"></i> Módulo de Administración y Diseño de Credenciales
+                            </h2>
+                            <p class="text-xs text-slate-500">Cargue plantillas de fondo, modifique textos del reverso y cree nuevas categorías de permisos de forma autónoma.</p>
+                        </div>
+                        <button onclick="openModalNuevaCategoria()" class="px-3 py-2 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-lg shadow flex items-center gap-2">
+                            <i class="fa-solid fa-plus"></i> Nueva Categoría
+                        </button>
+                    </div>
+
+                    <!-- Configuración por Categoría de Credencial -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Formulario de Configuración de Plantillas -->
+                        <div class="space-y-4 bg-slate-50 p-4 rounded-xl border">
+                            <h3 class="text-sm font-bold text-slate-800 border-b pb-2">Personalizar Categoría Seleccionada</h3>
+                            
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Seleccionar Tipo de Permiso a Editar:</label>
+                                <select id="selectTipoCredencialEditor" onchange="cargarConfiguracionDiseno()" class="w-full p-2.5 border rounded-lg text-sm bg-white outline-none">
+                                    <option value="ambulante">Comerciante Ambulante</option>
+                                    <option value="estacionado">Comerciante Estacionado</option>
+                                    <option value="ferias">Comerciante Autorizado para Ferias</option>
+                                    <option value="esporadicas">Actividades Esporádicas</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Imagen de Fondo Anverso (Frente)</label>
+                                <input type="text" id="editorFondoAnverso" placeholder="URL de la plantilla de fondo para anverso" class="w-full p-2 border rounded-lg text-xs font-mono">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Color de Borde / Distintivo</label>
+                                <input type="color" id="editorColorBorde" class="w-full h-9 p-1 border rounded-lg cursor-pointer">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Texto Institucional y Condiciones del Reverso (Dorso)</label>
+                                <textarea id="editorTextoReverso" rows="5" class="w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-[#0d3b66]"></textarea>
+                            </div>
+
+                            <button onclick="guardarDisenoCredencial()" class="w-full py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios de Diseño
+                            </button>
+                        </div>
+
+                        <!-- Vista Previa en Tiempo Real -->
+                        <div class="space-y-3 text-center flex flex-col justify-center items-center bg-slate-100 p-4 rounded-xl border">
+                            <h3 class="text-xs font-bold text-slate-600 uppercase tracking-wider">Vista Previa de Configuración</h3>
+                            <div id="editorPreviewBox" class="credencial-card ambulante p-3 flex flex-col justify-between border shadow">
+                                <div class="flex items-center justify-between border-b pb-1">
+                                    <span class="font-bold text-[9px] uppercase">I. MUNICIPALIDAD DE LOS ÁNGELES</span>
+                                    <span class="px-2 py-0.5 bg-[#0d3b66] text-white text-[8px] font-bold rounded">MUESTRA</span>
+                                </div>
+                                <div class="text-left text-[9px] my-2">
+                                    <p class="font-bold">FORMATO OFICIAL CONFIGURADO</p>
+                                    <p class="text-slate-500">Distribución automática de Nombre, RUT, QR y Escudo Municipal.</p>
+                                </div>
+                                <div class="text-[8px] border-t pt-1 text-slate-500">Sección Rentas y Patentes</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña MÓDULO 6: Reportes Avanzados y Exportación Excel (.xlsx) -->
+            <section id="tabReportes" class="hidden space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-file-excel text-emerald-600"></i> Módulo de Reportes y Exportación a Excel
+                            </h2>
+                            <p class="text-xs text-slate-500">Consulte, filtre por múltiples criterios y descargue archivos Excel (.xlsx) ordenados.</p>
+                        </div>
+                        <button onclick="exportarComerciantesExcel()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow flex items-center gap-2">
+                            <i class="fa-solid fa-download"></i> Exportar a Excel (.xlsx)
+                        </button>
+                    </div>
+
+                    <!-- Filtros Multicriterio -->
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Filtrar por Tipo Permiso:</label>
+                            <select id="repFiltroTipo" onchange="filtrarYRenderizarReporte()" class="w-full p-2 border rounded-lg bg-white">
+                                <option value="TODOS">-- Todos los Permisos --</option>
+                                <option value="ambulante">Comerciante Ambulante</option>
+                                <option value="estacionado">Comerciante Estacionado</option>
+                                <option value="ferias">Comerciante Autorizado para Ferias</option>
+                                <option value="esporadicas">Actividades Esporádicas</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Filtrar por Estado:</label>
+                            <select id="repFiltroEstado" onchange="filtrarYRenderizarReporte()" class="w-full p-2 border rounded-lg bg-white">
+                                <option value="TODOS">-- Todos los Estados --</option>
+                                <option value="VIGENTE">VIGENTE</option>
+                                <option value="PENDIENTE_RENOVACION">PENDIENTE DE RENOVACIÓN</option>
+                                <option value="VENCIDO">VENCIDO / NO RENOVADO</option>
+                                <option value="SUSPENDIDO">SUSPENDIDO / REVOCADO</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Buscar por Nombre/RUT/Ubicación:</label>
+                            <input type="text" id="repFiltroBusqueda" onkeyup="filtrarYRenderizarReporte()" placeholder="Ej: Perez / Plaza / 15420..." class="w-full p-2 border rounded-lg outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Sindicato:</label>
+                            <input type="text" id="repFiltroSindicato" onkeyup="filtrarYRenderizarReporte()" placeholder="Ej: Sindicato #1" class="w-full p-2 border rounded-lg outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Resultados de Reporte -->
+                    <div class="overflow-x-auto border rounded-xl">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold border-b">
+                                <tr>
+                                    <th class="p-3">RUT</th>
+                                    <th class="p-3">Comerciante</th>
+                                    <th class="p-3">Categoría</th>
+                                    <th class="p-3">Productos Autorizados</th>
+                                    <th class="p-3">Ubicación Puesto</th>
+                                    <th class="p-3">Sindicato</th>
+                                    <th class="p-3">Vencimiento</th>
+                                    <th class="p-3">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableReportesBody" class="divide-y divide-slate-100">
+                                <!-- Carga dinámica -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña MÓDULO 7: Notificaciones Automáticas por Vencimiento -->
+            <section id="tabNotificaciones" class="hidden space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-paper-plane text-blue-600"></i> Notificaciones Automáticas por Vencimiento
+                            </h2>
+                            <p class="text-xs text-slate-500">Envío oportuno de alertas a celulares registradas por SMS o WhatsApp Business.</p>
+                        </div>
+                        <button onclick="ejecutarEnvioNotificacionesAutomaticas()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow flex items-center gap-2">
+                            <i class="fa-solid fa-bell"></i> Procesar Avisos de Hoy
+                        </button>
+                    </div>
+
+                    <!-- Configuración de Plazos -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Días Previos de Aviso:</label>
+                            <input type="number" id="notifDiasPrevios" value="15" class="w-full p-2 border rounded-lg">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Canal Preferente:</label>
+                            <select id="notifCanal" class="w-full p-2 border rounded-lg bg-white">
+                                <option value="WhatsApp">WhatsApp Business API</option>
+                                <option value="SMS">SMS Gateway Institucional</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-end">
+                            <button onclick="guardarConfigNotificaciones()" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg">
+                                Guardar Configuración
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Historial de Notificaciones Enviadas -->
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Historial de Alertas Emitidas</h3>
+                        <div class="overflow-x-auto border rounded-xl">
+                            <table class="w-full text-left text-xs text-slate-600">
+                                <thead class="bg-slate-50 text-slate-700 uppercase text-[10px] font-bold border-b">
+                                    <tr>
+                                        <th class="p-3">Fecha Envío</th>
+                                        <th class="p-3">Comerciante</th>
+                                        <th class="p-3">Teléfono</th>
+                                        <th class="p-3">Canal</th>
+                                        <th class="p-3">Mensaje Enviado</th>
+                                        <th class="p-3">Estado Envío</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableNotificacionesBody" class="divide-y divide-slate-100">
+                                    <!-- Carga dinámica -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña Historial Global -->
+            <section id="tabHistorial" class="hidden space-y-4">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Historial General de Actuaciones</h2>
+                            <p class="text-xs text-slate-500">Registro inmutable de inspecciones realizadas en la comuna.</p>
+                        </div>
+                        <button onclick="imprimirActaFiscalizacion()" class="px-3 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-print"></i> Reporte Global
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-700 uppercase text-[10px] font-bold border-b">
+                                <tr>
+                                    <th class="p-3">Folio / Fecha</th>
+                                    <th class="p-3">Comerciante / RUT</th>
+                                    <th class="p-3">Resultado</th>
+                                    <th class="p-3">Inspector Responsable</th>
+                                    <th class="p-3">Observaciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableHistorialGlobalBody" class="divide-y divide-slate-100">
+                                <!-- Carga dinámica -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pestaña Administración de Usuarios -->
+            <section id="tabUsuarios" class="hidden space-y-4">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Gestión Exclusiva de Usuarios y Accesos</h2>
+                            <p class="text-xs text-slate-500">Módulo reservado para el Administrador: Incorporar personas con permisos de visualización o registro.</p>
+                        </div>
+                        <button onclick="openCreateUserModal()" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 flex items-center gap-2 shadow">
+                            <i class="fa-solid fa-user-plus"></i> Incorporar Nuevo Funcionario
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-700 uppercase text-[10px] font-bold border-b">
+                                <tr>
+                                    <th class="p-3">Nombre Funcionario</th>
+                                    <th class="p-3">Usuario (Login)</th>
+                                    <th class="p-3">Rol y Permisos Asignados</th>
+                                    <th class="p-3">Estado</th>
+                                    <th class="p-3 text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableUsuariosBody" class="divide-y divide-slate-100">
+                                <!-- Carga dinámica -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Bottom Nav Bar (Móvil) -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-[#0d3b66] text-white border-t border-blue-900 flex justify-around py-2 z-30 no-print">
+        <button onclick="switchTab('fiscalizar')" class="flex flex-col items-center text-[10px] text-amber-300">
+            <i class="fa-solid fa-qrcode text-base mb-0.5"></i> Fiscalizar
+        </button>
+        <button onclick="switchTab('directorio')" id="mobileNavDirectorio" class="flex flex-col items-center text-[10px] text-blue-200 hover:text-white">
+            <i class="fa-solid fa-address-book text-base mb-0.5"></i> Registro
+        </button>
+        <button onclick="switchTab('credenciales')" class="flex flex-col items-center text-[10px] text-amber-300 font-bold">
+            <i class="fa-solid fa-id-card text-base mb-0.5"></i> Credencial
+        </button>
+        <button onclick="switchTab('reportes')" class="flex flex-col items-center text-[10px] text-emerald-300">
+            <i class="fa-solid fa-file-excel text-base mb-0.5"></i> Excel
+        </button>
+        <button onclick="logout()" class="flex flex-col items-center text-[10px] text-red-300 font-bold">
+            <i class="fa-solid fa-right-from-bracket text-base mb-0.5"></i> Salir
+        </button>
+    </nav>
+
+    <!-- Modal Cambio Contraseña -->
+    <div id="modalPassword" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
+            <h3 class="text-base font-bold text-slate-900 border-b pb-2">Cambiar Mi Contraseña de Acceso</h3>
+            <form onsubmit="actualizarPassword(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña Actual</label>
+                    <input type="password" id="passActual" required class="w-full p-2 border rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nueva Contraseña</label>
+                    <input type="password" id="passNueva" required class="w-full p-2 border rounded-lg text-sm">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeChangePasswordModal()" class="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-[#0d3b66] text-white rounded-lg text-xs font-bold">Guardar Clave</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Configuración Firebase / Nube -->
+    <div id="modalConfigDB" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-base font-bold text-slate-900 border-b pb-2 flex items-center gap-2">
+                <i class="fa-solid fa-fire text-amber-600"></i> Configuración Firebase (Firestore DB)
+            </h3>
+            <p class="text-xs text-slate-500">Ingrese su objeto firebaseConfig para conectar la base de datos centralizada Firebase Firestore en tiempo real.</p>
+            <div class="space-y-2 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">apiKey</label>
+                    <input type="text" id="fbApiKey" placeholder="AIzaSy..." class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">authDomain</label>
+                    <input type="text" id="fbAuthDomain" placeholder="mi-proyecto.firebaseapp.com" class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">projectId</label>
+                    <input type="text" id="fbProjectId" placeholder="mi-proyecto" class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">storageBucket</label>
+                    <input type="text" id="fbStorageBucket" placeholder="mi-proyecto.appspot.com" class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">messagingSenderId</label>
+                    <input type="text" id="fbMessagingSenderId" placeholder="123456789" class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-0.5">appId</label>
+                    <input type="text" id="fbAppId" placeholder="1:123456789:web:abcde..." class="w-full p-2 border rounded-lg font-mono">
+                </div>
+                <div class="flex justify-end gap-2 pt-3">
+                    <button type="button" onclick="closeConfigModal()" class="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                    <button type="button" onclick="guardarConfigFirebase()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold">Conectar Firebase</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Crear Usuario (Solo Admin) -->
+    <div id="modalCrearUsuario" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
+            <h3 class="text-base font-bold text-slate-900 border-b pb-2">Incorporar Nuevo Funcionario Autorizado</h3>
+            <form onsubmit="guardarNuevoUsuario(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nombre Completo del Funcionario</label>
+                    <input type="text" id="newNombreUser" required placeholder="Ej: Carlos Silva Parra" class="w-full p-2 border rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nombre de Usuario (Login)</label>
+                    <input type="text" id="newLoginUser" required placeholder="Ej: csilva" class="w-full p-2 border rounded-lg text-sm font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña Asignada</label>
+                    <input type="password" id="newPassUser" required placeholder="••••••••" class="w-full p-2 border rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nivel de Acceso y Permisos</label>
+                    <select id="newRolUser" class="w-full p-2 border rounded-lg text-sm bg-white">
+                        <option value="REGISTRAR">REGISTRADOR - Crear y modificar comerciantes</option>
+                        <option value="ADMIN">ADMINISTRADOR - Acceso total y gestión de funcionarios</option>
+                        <option value="INSPECTOR">INSPECTOR - Exclusivo para fiscalización por RUT/QR</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeCreateUserModal()" class="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold">Crear Funcionario</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Crear Nueva Categoría de Credencial -->
+    <div id="modalNuevaCategoria" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
+            <h3 class="text-base font-bold text-slate-900 border-b pb-2">Crear Nueva Categoría de Credencial</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Código de Categoría (sin espacios):</label>
+                    <input type="text" id="catNuevoCodigo" placeholder="ej: temporales" class="w-full p-2 border rounded-lg text-sm font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nombre Visible de la Categoría:</label>
+                    <input type="text" id="catNuevoNombre" placeholder="ej: Permiso Evento Fiestas Patrias" class="w-full p-2 border rounded-lg text-sm">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModalNuevaCategoria()" class="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                    <button type="button" onclick="guardarNuevaCategoria()" class="px-4 py-2 bg-purple-700 text-white rounded-lg text-xs font-bold">Crear Categoría</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Plantilla de Impresión de Reporte / Acta (Solo Visible al Imprimir) -->
+    <div id="printArea" class="print-only p-8 text-slate-900 space-y-6">
+        <div class="flex justify-between items-center border-b-2 border-slate-800 pb-4">
+            <div class="flex items-center gap-4">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Escudo_de_Los_%C3%81ngeles_%28Chile%29.svg" class="h-16 w-auto">
+                <div>
+                    <h1 class="text-xl font-bold uppercase">I. Municipalidad de Los Ángeles</h1>
+                    <h2 class="text-sm font-semibold text-slate-600">Dirección de Administración y Finanzas</h2>
+                    <h3 class="text-xs text-slate-500 font-bold">SECCIÓN DE RENTAS Y PATENTES</h3>
+                </div>
+            </div>
+            <div class="text-right">
+                <p class="text-xs font-mono font-bold" id="printFolio">FOLIO: FISC-2026-000</p>
+                <p class="text-xs text-slate-500" id="printFecha">Fecha: 01/01/2026</p>
+            </div>
+        </div>
+
+        <div class="text-center py-2">
+            <h2 class="text-lg font-bold tracking-wider uppercase border-y py-1 bg-slate-50">Acta Oficial de Fiscalización Municipal</h2>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 text-xs">
+            <div class="p-3 border rounded space-y-1">
+                <p class="font-bold border-b pb-1">ANTECEDENTES DEL COMERCIANTE</p>
+                <p><strong>Nombre:</strong> <span id="printComercianteNom">-</span></p>
+                <p><strong>RUT:</strong> <span id="printComercianteRut">-</span></p>
+                <p><strong>Teléfono:</strong> <span id="printComercianteTel">-</span></p>
+                <p><strong>Dirección:</strong> <span id="printComercianteDir">-</span></p>
+                <p><strong>Sindicato:</strong> <span id="printComercianteSind">-</span></p>
+                <p><strong>Productos:</strong> <span id="printComercianteRubro">-</span></p>
+                <p><strong>Ubicación:</strong> <span id="printComercianteUbicacion">-</span></p>
+            </div>
+            <div class="p-3 border rounded space-y-1">
+                <p class="font-bold border-b pb-1">DATOS DE LA INSPECCIÓN</p>
+                <p><strong>Inspector Responsable:</strong> <span id="printInspectorNom">-</span></p>
+                <p><strong>Resultado:</strong> <span id="printResultadoEstado" class="font-bold">-</span></p>
+                <p><strong>Estado Patente:</strong> <span id="printEstadoPatente">-</span></p>
+            </div>
+        </div>
+
+        <div class="border rounded p-3 space-y-1 text-xs">
+            <p class="font-bold border-b pb-1">OBSERVACIONES Y ANTECEDENTES DETECTADOS</p>
+            <p id="printObservaciones" class="min-h-[80px] pt-1 whitespace-pre-wrap text-slate-700">-</p>
+        </div>
+
+        <div class="pt-16 grid grid-cols-2 gap-12 text-center text-xs">
+            <div class="border-t border-slate-400 pt-2">
+                <p class="font-bold" id="printFirmaInspector">Firma Inspector Municipal</p>
+                <p class="text-slate-500">Sección Rentas y Patentes</p>
+            </div>
+            <div class="border-t border-slate-400 pt-2">
+                <p class="font-bold">Firma / Timbre Comerciante</p>
+                <p class="text-slate-500">Notificación en Terreno</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Área Exclusiva de Impresión de Credencial -->
+    <div id="credencialPrintArea" class="print-only p-4 bg-white">
+        <div class="flex flex-col items-center justify-center space-y-6">
+            <div id="printCredencialAnverso"></div>
+            <div id="printCredencialReverso"></div>
+        </div>
+    </div>
+
+    <!-- Script Principal de Lógica -->
+    <script>
+        async function hashPassword(str) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        const initialUsers = [
+            { id: 1, name: 'Administrador Rentas', login: 'admin', passHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', role: 'ADMIN', status: 'ACTIVO' },
+            { id: 2, name: 'Pedro Morales (Inspector)', login: 'inspector', passHash: '071a94fa4652c7b5080c55a29f07f43690d7c07b663b9fef89e2e604f33d45ef', role: 'INSPECTOR', status: 'ACTIVO' },
+            { id: 3, name: 'Fernanda Pérez (Registradora)', login: 'f_perez', passHash: '39c9f28ecb32a792d408be923e1e69dc3cf20be3f7f884f35e07661cfdf62b1b', role: 'REGISTRAR', status: 'ACTIVO' }
+        ];
+
+        const initialComerciantes = [
+            { id: 1, nombre: 'Juan Antonio Pérez Soto', rut: '12.345.678-9', tipoPermiso: 'ambulante', numPermiso: 'PERM-2026-001', telefono: '+56 9 8765 4321', direccion: 'Calle Valdivia #450, Los Ángeles', sindicato: 'Sindicato Comerciantes Ambulantes #1', rubro: 'Frutas y Verduras Orgánicas', ubicacion: 'Feria Libre Puesto 12', estado: 'VIGENTE', emision: '2026-01-01', vencimiento: '2026-12-31', foto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150', eliminado: false },
+            { id: 2, nombre: 'María Elena Mella Silva', rut: '15.420.890-K', tipoPermiso: 'estacionado', numPermiso: 'PERM-2026-014', telefono: '+56 9 7654 3210', direccion: 'Av. Ricardo Vicuña #890, Los Ángeles', sindicato: 'Asociación de Artesanos del Biobío', rubro: 'Artesanías en Cuero y Madera', ubicacion: 'Plaza de Armas Stand 4', estado: 'PENDIENTE_RENOVACION', emision: '2025-06-01', vencimiento: '2026-06-30', foto: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', eliminado: false },
+            { id: 3, nombre: 'Carlos Ruiz Zúñiga', rut: '9.876.543-2', tipoPermiso: 'ferias', numPermiso: 'PERM-2025-089', telefono: '+56 9 6543 2109', direccion: 'Pasaje Los Volcanes #12, Los Ángeles', sindicato: 'Sin Sindicato', rubro: 'Comida Rápida y Mote con Huesillo', ubicacion: 'Av. Alemania Esquina Villagrán', estado: 'VENCIDO', emision: '2025-01-01', vencimiento: '2025-12-31', foto: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150', eliminado: false }
+        ];
+
+        const initialFiscalizaciones = [
+            { id: 'FISC-2026-001', comercianteRut: '12.345.678-9', comercianteNom: 'Juan Antonio Pérez Soto', fecha: '2026-02-10 10:30', resultado: 'CONFORME', inspector: 'Pedro Morales (Inspector)', obs: 'Puesto limpio, cumple con delimitación autorizada.' },
+            { id: 'FISC-2026-002', comercianteRut: '9.876.543-2', comercianteNom: 'Carlos Ruiz Zúñiga', fecha: '2026-02-12 11:15', resultado: 'INFRACCIONADO', inspector: 'Pedro Morales (Inspector)', obs: 'Patente vencida. Se procede a notificar para regularizar en 48 hrs.' }
+        ];
+
+        const defaultCredencialesConfig = {
+            ambulante: {
+                nombre: 'Comerciante Ambulante',
+                colorBorde: '#0284c7',
+                fondoAnverso: '',
+                reversoTexto: `1. Esta credencial es personal e intransferible y debe portarse en un lugar visible durante el ejercicio de la actividad comercial.
+2. Válida exclusivamente para el rubro y ubicación autorizados por el Decreto Municipal respectivo.
+3. Los inspectores municipales o Carabineros de Chile podrán requerir su presentación en cualquier momento.
+4. La adulteración o mal uso acarreará la revocación inmediata del permiso y citación al Juzgado de Policía Local.`
+            },
+            estacionado: {
+                nombre: 'Comerciante Estacionado',
+                colorBorde: '#d97706',
+                fondoAnverso: '',
+                reversoTexto: `1. Válida exclusivamente para el módulo o puesto fijo delimitado en el Decreto de Autorización.
+2. Queda prohibida la ocupación de mayor espacio al asignado o la cesión a terceros.
+3. Mantener aseado el puesto y respetar el horario de funcionamiento autorizado por la Municipalidad.`
+            },
+            ferias: {
+                nombre: 'Comerciante Autorizado para Ferias',
+                colorBorde: '#16a34a',
+                fondoAnverso: '',
+                reversoTexto: `1. Permiso habilitado estrictamente para los días y horarios fijados para la feria respectiva.
+2. Deberá exhibir la credencial en el puesto y contar con las condiciones sanitarias correspondientes.
+3. La Municipalidad se reserva la facultad de reubicar o suspender el permiso por razones de orden público.`
+            },
+            esporadicas: {
+                nombre: 'Actividades Esporádicas',
+                colorBorde: '#9333ea',
+                fondoAnverso: '',
+                reversoTexto: `1. Autorización temporal concedida exclusivamente para las fechas y evento indicados.
+2. Expirado el plazo del evento, esta credencial carecerá de todo valor administrativo.
+3. Cumplir estrictamente con la normativa municipal de ruidos molestos y manejo de residuos.`
+            }
+        };
+
+        let users = JSON.parse(localStorage.getItem('muni_users')) || initialUsers;
+        let comerciantes = JSON.parse(localStorage.getItem('muni_comerciantes')) || initialComerciantes;
+        let fiscalizaciones = JSON.parse(localStorage.getItem('muni_fisc')) || initialFiscalizaciones;
+        let credencialesConfig = JSON.parse(localStorage.getItem('muni_cred_config')) || defaultCredencialesConfig;
+        let notificacionesHistorial = JSON.parse(localStorage.getItem('muni_notif_history')) || [];
+        let auditLogs = JSON.parse(localStorage.getItem('muni_audit_logs')) || [];
+        let currentUser = JSON.parse(localStorage.getItem('muni_active_user')) || null;
+        let currentSelectedComerciante = null;
+        let html5QrcodeScanner = null;
+        let dbFirestore = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initFirebase();
+            saveState();
+            checkSession();
+            poblarSelectorComerciantesCredencial();
+            cargarConfiguracionDiseno();
+            filtrarYRenderizarReporte();
+            renderNotificacionesHistorial();
+        });
+
+        function initFirebase() {
+            const fbConfigStr = localStorage.getItem('muni_fb_config');
+            if (fbConfigStr && window.firebase) {
+                try {
+                    const config = JSON.parse(fbConfigStr);
+                    if (!firebase.apps.length) firebase.initializeApp(config);
+                    dbFirestore = firebase.firestore();
+                    document.getElementById('syncStatus').innerHTML = '<i class="fa-solid fa-fire text-[10px] text-amber-400"></i> Firebase Conectado';
+                } catch(e) {}
+            }
+        }
+
+        function saveState() {
+            localStorage.setItem('muni_users', JSON.stringify(users));
+            localStorage.setItem('muni_comerciantes', JSON.stringify(comerciantes));
+            localStorage.setItem('muni_fisc', JSON.stringify(fiscalizaciones));
+            localStorage.setItem('muni_cred_config', JSON.stringify(credencialesConfig));
+            localStorage.setItem('muni_notif_history', JSON.stringify(notificacionesHistorial));
+            localStorage.setItem('muni_audit_logs', JSON.stringify(auditLogs));
+            if (currentUser) {
+                localStorage.setItem('muni_active_user', JSON.stringify(currentUser));
+            } else {
+                localStorage.removeItem('muni_active_user');
+            }
+        }
+
+        // Sesión y Navegación
+        function checkSession() {
+            const loginScreen = document.getElementById('loginScreen');
+            if (!currentUser) {
+                loginScreen.classList.remove('hidden');
+            } else {
+                loginScreen.classList.add('hidden');
+                updateUIForUser();
+                renderComerciantes();
+                renderHistorialGlobal();
+                renderUsuarios();
+            }
+        }
+
+        async function iniciarSesion(e) {
+            e.preventDefault();
+            const uInput = document.getElementById('loginUsuario').value.trim();
+            const pInput = document.getElementById('loginPassword').value.trim();
+            const passHashInput = await hashPassword(pInput);
+
+            const found = users.find(u => u.login.toLowerCase() === uInput.toLowerCase() && (u.passHash === passHashInput || u.pass === pInput));
+            
+            if (found && found.status === 'INACTIVO') {
+                alert('Esta cuenta se encuentra DESACTIVADA.');
+                return;
+            }
+
+            if (found) {
+                currentUser = found;
+                saveState();
+                document.getElementById('loginErrorMsg').classList.add('hidden');
+                document.getElementById('loginScreen').classList.add('hidden');
+                updateUIForUser();
+                renderComerciantes();
+                renderHistorialGlobal();
+                renderUsuarios();
+            } else {
+                document.getElementById('loginErrorMsg').classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            saveState();
+            document.getElementById('userMenuModal').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+        }
+
+        function updateUIForUser() {
+            if (!currentUser) return;
+            document.getElementById('navUserName').innerText = currentUser.name;
+            document.getElementById('navUserRole').innerText = currentUser.role;
+
+            const isRoleAdmin = currentUser.role === 'ADMIN';
+            const isRoleReg = currentUser.role === 'REGISTRAR' || isRoleAdmin;
+
+            document.getElementById('adminUserMgmtBtn').classList.toggle('hidden', !isRoleAdmin);
+            document.getElementById('sideNavUsuarios').classList.toggle('hidden', !isRoleAdmin);
+            document.getElementById('sideNavDiseno').classList.toggle('hidden', !isRoleAdmin);
+            document.getElementById('sideNavDirectorio').classList.toggle('hidden', !isRoleReg);
+            document.getElementById('sideNavRegistro').classList.toggle('hidden', !isRoleReg);
+
+            if (!isRoleReg) switchTab('fiscalizar');
+        }
+
+        function toggleUserMenu() {
+            document.getElementById('userMenuModal').classList.toggle('hidden');
+        }
+
+        function switchTab(tabId) {
+            ['Fiscalizar', 'Directorio', 'Registro', 'Credenciales', 'DisenoCredenciales', 'Reportes', 'Notificaciones', 'Historial', 'Usuarios'].forEach(t => {
+                const el = document.getElementById('tab' + t);
+                if (el) el.classList.add('hidden');
+            });
+
+            const target = document.getElementById('tab' + tabId.charAt(0).toUpperCase() + tabId.slice(1));
+            if(target) target.classList.remove('hidden');
+            if (window.innerWidth < 768) window.scrollTo({top:0, behavior:'smooth'});
+        }
+
+        // Búsqueda y Fiscalización
+        function buscarPorRut() {
+            const input = document.getElementById('inputRutSearch').value.trim().toLowerCase();
+            if(!input) return;
+            const found = comerciantes.find(c => !c.eliminado && (c.rut.toLowerCase().replace(/\./g,'').includes(input.replace(/\./g,'')) || c.nombre.toLowerCase().includes(input)));
+            if (found) {
+                mostrarFichaComerciante(found);
+            } else {
+                alert('No se encontró comerciante registrado con RUT ' + input);
+            }
+        }
+
+        function mostrarFichaComerciante(c) {
+            currentSelectedComerciante = c;
+            document.getElementById('searchResultCard').classList.remove('hidden');
+            document.getElementById('resNombre').innerText = c.nombre;
+            document.getElementById('resRut').innerText = c.rut;
+            document.getElementById('resNumPermiso').innerText = c.numPermiso || 'PERM-2026-000';
+            document.getElementById('resTelefono').innerText = c.telefono || 'No registrado';
+            document.getElementById('resSindicato').innerText = c.sindicato || 'Sin sindicato';
+            document.getElementById('resRubro').innerText = c.rubro;
+            document.getElementById('resUbicacion').innerText = c.ubicacion;
+            document.getElementById('resVencimiento').innerText = c.vencimiento;
+            document.getElementById('resFoto').src = c.foto || 'https://via.placeholder.com/150';
+
+            const badge = document.getElementById('badgeEstadoResultado');
+            badge.innerText = c.estado.replace('_', ' ');
+            badge.className = "px-3 py-1 rounded-full text-xs font-bold uppercase text-white shadow " +
+                (c.estado === 'VIGENTE' ? 'bg-emerald-600' : c.estado === 'PENDIENTE_RENOVACION' ? 'bg-amber-500' : 'bg-red-600');
+
+            document.getElementById('resTipoPermisoBadge').innerText = (credencialesConfig[c.tipoPermiso] || {}).nombre || c.tipoPermiso;
+
+            renderHistorialIndividual(c.rut);
+        }
+
+        function guardarFiscalizacion() {
+            if(!currentSelectedComerciante) return;
+            const res = document.getElementById('selectResultadoFisc').value;
+            const obs = document.getElementById('txtObservacionFisc').value.trim();
+
+            if(!obs) {
+                alert('Incorpore observaciones antes de registrar.');
+                return;
+            }
+
+            const newFisc = {
+                id: 'FISC-2026-' + String(fiscalizaciones.length + 1).padStart(3, '0'),
+                comercianteRut: currentSelectedComerciante.rut,
+                comercianteNom: currentSelectedComerciante.nombre,
+                fecha: new Date().toLocaleString('es-CL'),
+                resultado: res,
+                inspector: currentUser.name,
+                obs: obs
+            };
+
+            fiscalizaciones.unshift(newFisc);
+            saveState();
+            renderHistorialIndividual(currentSelectedComerciante.rut);
+            renderHistorialGlobal();
+            document.getElementById('txtObservacionFisc').value = '';
+            alert('Fiscalización registrada Folio: ' + newFisc.id);
+        }
+
+        function renderHistorialIndividual(rut) {
+            const container = document.getElementById('resHistorialIndividual');
+            const items = fiscalizaciones.filter(f => f.comercianteRut === rut);
+            if(items.length === 0) {
+                container.innerHTML = '<p class="text-xs text-slate-400 italic">Sin fiscalizaciones previas.</p>';
+                return;
+            }
+            container.innerHTML = items.map(f => `
+                <div class="bg-slate-50 p-2.5 rounded border text-xs space-y-1">
+                    <div class="flex justify-between font-bold">
+                        <span class="text-[#0d3b66]">${f.id} — ${f.fecha}</span>
+                        <span>${f.resultado}</span>
+                    </div>
+                    <p class="text-slate-600">${f.obs}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderHistorialGlobal() {
+            const tbody = document.getElementById('tableHistorialGlobalBody');
+            tbody.innerHTML = fiscalizaciones.map(f => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3 font-mono font-bold text-[#0d3b66]">${f.id}<br><span class="text-[10px] text-slate-400 font-normal">${f.fecha}</span></td>
+                    <td class="p-3"><strong>${f.comercianteNom}</strong><br><span class="font-mono text-slate-400">${f.comercianteRut}</span></td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${f.resultado === 'CONFORME' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${f.resultado}</span></td>
+                    <td class="p-3">${f.inspector}</td>
+                    <td class="p-3 text-slate-500 max-w-xs truncate">${f.obs}</td>
+                </tr>
+            `).join('');
+        }
+
+        // CRUD Comerciantes
+        function prepararFormularioNuevo() {
+            document.getElementById('editComercianteRutOriginal').value = '';
+            document.getElementById('formComercianteTitulo').innerText = 'Registro Oficial de Comerciante';
+            document.getElementById('btnGuardarComercianteTxt').innerText = 'Guardar Registro';
+            document.getElementById('formNuevoComerciante').reset();
+            document.getElementById('regNumPermiso').value = 'PERM-2026-' + String(comerciantes.length + 1).padStart(3, '0');
+            switchTab('registro');
+        }
+
+        function editarComerciante(rut) {
+            const c = comerciantes.find(item => item.rut === rut && !item.eliminado);
+            if (!c) return;
+
+            document.getElementById('editComercianteRutOriginal').value = c.rut;
+            document.getElementById('formComercianteTitulo').innerText = 'Modificar Comerciante: ' + c.nombre;
+            document.getElementById('btnGuardarComercianteTxt').innerText = 'Actualizar Cambios';
+
+            document.getElementById('regNombre').value = c.nombre;
+            document.getElementById('regRut').value = c.rut;
+            document.getElementById('regTipoPermiso').value = c.tipoPermiso || 'ambulante';
+            document.getElementById('regNumPermiso').value = c.numPermiso || '';
+            document.getElementById('regTelefono').value = c.telefono || '';
+            document.getElementById('regDireccion').value = c.direccion || '';
+            document.getElementById('regSindicato').value = c.sindicato || '';
+            document.getElementById('regUbicacion').value = c.ubicacion;
+            document.getElementById('regProductos').value = c.rubro;
+            document.getElementById('regEstado').value = c.estado;
+            document.getElementById('regEmision').value = c.emision || '2026-01-01';
+            document.getElementById('regVencimiento').value = c.vencimiento;
+            document.getElementById('regFoto').value = c.foto || '';
+
+            switchTab('registro');
+        }
+
+        function guardarComerciante(e) {
+            e.preventDefault();
+            const rutOriginal = document.getElementById('editComercianteRutOriginal').value;
+            const nuevoRut = document.getElementById('regRut').value.trim();
+
+            const data = {
+                nombre: document.getElementById('regNombre').value.trim(),
+                rut: nuevoRut,
+                tipoPermiso: document.getElementById('regTipoPermiso').value,
+                numPermiso: document.getElementById('regNumPermiso').value.trim(),
+                telefono: document.getElementById('regTelefono').value.trim(),
+                direccion: document.getElementById('regDireccion').value.trim(),
+                sindicato: document.getElementById('regSindicato').value.trim(),
+                rubro: document.getElementById('regProductos').value.trim(),
+                ubicacion: document.getElementById('regUbicacion').value.trim(),
+                estado: document.getElementById('regEstado').value,
+                emision: document.getElementById('regEmision').value,
+                vencimiento: document.getElementById('regVencimiento').value,
+                foto: document.getElementById('regFoto').value.trim() || 'https://via.placeholder.com/150',
+                eliminado: false
+            };
+
+            if (rutOriginal) {
+                const idx = comerciantes.findIndex(c => c.rut === rutOriginal);
+                if (idx !== -1) comerciantes[idx] = { ...comerciantes[idx], ...data };
+            } else {
+                if (comerciantes.some(c => c.rut === nuevoRut && !c.eliminado)) {
+                    alert('Error: Ya existe un comerciante registrado con el RUT ' + nuevoRut);
+                    return;
+                }
+                data.id = comerciantes.length + 1;
+                comerciantes.push(data);
+            }
+
+            saveState();
+            renderComerciantes();
+            poblarSelectorComerciantesCredencial();
+            alert('Registro guardado exitosamente.');
+            switchTab('directorio');
+        }
+
+        function eliminarComerciante(rut) {
+            const c = comerciantes.find(item => item.rut === rut);
+            if (!c) return;
+            if (confirm(`¿Eliminar al comerciante ${c.nombre} (${c.rut})?`)) {
+                c.eliminado = true;
+                saveState();
+                renderComerciantes();
+                poblarSelectorComerciantesCredencial();
+            }
+        }
+
+        function cargarFotografiaArchivo(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('regFoto').value = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function renderComerciantes() {
+            const tbody = document.getElementById('tableComerciantesBody');
+            const activos = comerciantes.filter(c => !c.eliminado);
+            tbody.innerHTML = activos.map(c => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3">
+                        <div class="flex items-center gap-2">
+                            <img src="${c.foto || 'https://via.placeholder.com/150'}" class="w-8 h-8 rounded-full object-cover border">
+                            <div>
+                                <p class="font-bold text-slate-900">${c.nombre}</p>
+                                <p class="text-[10px] text-slate-400">${c.telefono || 'Sin fono'}</p>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="p-3 font-mono font-bold">${c.rut}<br><span class="text-[10px] text-slate-400">${c.numPermiso || ''}</span></td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900">${(credencialesConfig[c.tipoPermiso] || {}).nombre || c.tipoPermiso}</span></td>
+                    <td class="p-3">${c.rubro}<br><span class="text-[10px] text-slate-400">${c.ubicacion}</span></td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${c.estado === 'VIGENTE' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${c.estado.replace('_',' ')}</span></td>
+                    <td class="p-3 text-center space-x-1">
+                        <button onclick="seleccionarYFiscalizar('${c.rut}')" title="Fiscalizar" class="px-2 py-1 bg-[#0d3b66] text-white rounded text-[10px] font-bold"><i class="fa-solid fa-qrcode"></i></button>
+                        <button onclick="editarComerciante('${c.rut}')" title="Modificar" class="px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-bold"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="eliminarComerciante('${c.rut}')" title="Eliminar" class="px-2 py-1 bg-red-600 text-white rounded text-[10px] font-bold"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function seleccionarYFiscalizar(rut) {
+            const c = comerciantes.find(item => item.rut === rut && !item.eliminado);
+            if(c) {
+                switchTab('fiscalizar');
+                mostrarFichaComerciante(c);
+            }
+        }
+
+        // MÓDULO DE CREDENCIALES
+        function poblarSelectorComerciantesCredencial() {
+            const select = document.getElementById('selectComercianteCredencial');
+            const activos = comerciantes.filter(c => !c.eliminado);
+            select.innerHTML = activos.map(c => `<option value="${c.rut}">${c.nombre} (${c.rut}) - ${c.numPermiso || 'PERMISO'}</option>`).join('');
+            renderizarCredencialVista();
+        }
+
+        function renderizarCredencialVista() {
+            const rut = document.getElementById('selectComercianteCredencial').value;
+            const c = comerciantes.find(item => item.rut === rut);
+            if(!c) return;
+
+            const config = credencialesConfig[c.tipoPermiso] || credencialesConfig['ambulante'];
+
+            document.getElementById('credTipoEtiqueta').innerText = (config.nombre || c.tipoPermiso).toUpperCase();
+            document.getElementById('credNombre').innerText = c.nombre;
+            document.getElementById('credRut').innerText = 'RUT: ' + c.rut;
+            document.getElementById('credNumPermiso').innerText = c.numPermiso || 'PERM-2026-000';
+            document.getElementById('credRubro').innerText = c.rubro;
+            document.getElementById('credUbicacion').innerText = c.ubicacion;
+            document.getElementById('credSindicato').innerText = c.sindicato || 'Sin Sindicato';
+            document.getElementById('credEmision').innerText = c.emision || '01/01/2026';
+            document.getElementById('credVencimiento').innerText = c.vencimiento;
+            document.getElementById('credFoto').src = c.foto || 'https://via.placeholder.com/150';
+
+            // Estilos dinámicos
+            const cardAnverso = document.getElementById('credencialAnversoPreview');
+            cardAnverso.style.borderColor = config.colorBorde || '#0284c7';
+
+            // Generación de QR dinámico seguro
+            const qrContainer = document.getElementById('credQrContainer');
+            qrContainer.innerHTML = '';
+            
+            // Enlace de verificación pública
+            const secureVerifyUrl = `https://losangeles.cl/verificar_permiso.html?rut=${encodeURIComponent(c.rut)}&permiso=${encodeURIComponent(c.numPermiso || '')}`;
+            
+            new QRCode(qrContainer, {
+                text: secureVerifyUrl,
+                width: 42,
+                height: 42,
+                colorDark : "#0d3b66",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            // Cargar Texto de Reverso
+            const lines = (config.reversoTexto || '').split('
+');
+            document.getElementById('credReversoTexto').innerHTML = lines.map(l => `<p>${l}</p>`).join('');
+        }
+
+        function generarCredencialIndividualDesdeFicha() {
+            if(!currentSelectedComerciante) return;
+            switchTab('credenciales');
+            document.getElementById('selectComercianteCredencial').value = currentSelectedComerciante.rut;
+            renderizarCredencialVista();
+        }
+
+        function imprimirCredencialSeleccionada() {
+            const modo = document.getElementById('selectModoImpresion').value;
+            const anversoHTML = document.getElementById('credencialAnversoPreview').outerHTML;
+            const reversoHTML = document.getElementById('credencialReversoPreview').outerHTML;
+
+            const printAreaAnverso = document.getElementById('printCredencialAnverso');
+            const printAreaReverso = document.getElementById('printCredencialReverso');
+
+            printAreaAnverso.innerHTML = (modo === 'ambos' || modo === 'anverso') ? `<h3 class="text-xs font-bold text-center mb-1">ANVERSO</h3>${anversoHTML}` : '';
+            printAreaReverso.innerHTML = (modo === 'ambos' || modo === 'reverso') ? `<h3 class="text-xs font-bold text-center mb-1">REVERSO</h3>${reversoHTML}` : '';
+
+            window.print();
+        }
+
+        // MÓDULO DE DISEÑO
+        function cargarConfiguracionDiseno() {
+            const tipo = document.getElementById('selectTipoCredencialEditor').value;
+            const config = credencialesConfig[tipo] || defaultCredencialesConfig['ambulante'];
+
+            document.getElementById('editorFondoAnverso').value = config.fondoAnverso || '';
+            document.getElementById('editorColorBorde').value = config.colorBorde || '#0284c7';
+            document.getElementById('editorTextoReverso').value = config.reversoTexto || '';
+        }
+
+        function guardarDisenoCredencial() {
+            const tipo = document.getElementById('selectTipoCredencialEditor').value;
+            credencialesConfig[tipo] = credencialesConfig[tipo] || {};
+
+            credencialesConfig[tipo].fondoAnverso = document.getElementById('editorFondoAnverso').value.trim();
+            credencialesConfig[tipo].colorBorde = document.getElementById('editorColorBorde').value;
+            credencialesConfig[tipo].reversoTexto = document.getElementById('editorTextoReverso').value;
+
+            saveState();
+            renderizarCredencialVista();
+            alert('Configuración de diseño de credencial guardada exitosamente.');
+        }
+
+        function openModalNuevaCategoria() { document.getElementById('modalNuevaCategoria').classList.remove('hidden'); }
+        function closeModalNuevaCategoria() { document.getElementById('modalNuevaCategoria').classList.add('hidden'); }
+        
+        function guardarNuevaCategoria() {
+            const cod = document.getElementById('catNuevoCodigo').value.trim().toLowerCase().replace(/\s+/g,'_');
+            const nom = document.getElementById('catNuevoNombre').value.trim();
+
+            if(!cod || !nom) {
+                alert('Complete el código y nombre de la categoría.');
+                return;
+            }
+
+            credencialesConfig[cod] = {
+                nombre: nom,
+                colorBorde: '#4f46e5',
+                fondoAnverso: '',
+                reversoTexto: '1. Permiso otorgado bajo el régimen de ' + nom + '.
+2. Incorporar normas generales de fiscalización municipal.'
+            };
+
+            saveState();
+            
+            // Agregar al selector de la UI
+            const opt1 = document.createElement('option'); opt1.value = cod; opt1.innerText = nom;
+            document.getElementById('regTipoPermiso').appendChild(opt1);
+
+            const opt2 = document.createElement('option'); opt2.value = cod; opt2.innerText = nom;
+            document.getElementById('selectTipoCredencialEditor').appendChild(opt2);
+
+            closeModalNuevaCategoria();
+            alert('Nueva categoría "' + nom + '" creada con éxito.');
+        }
+
+        // MÓDULO DE REPORTES Y EXCEL
+        function filtrarYRenderizarReporte() {
+            const tipo = document.getElementById('repFiltroTipo').value;
+            const estado = document.getElementById('repFiltroEstado').value;
+            const busqueda = document.getElementById('repFiltroBusqueda').value.toLowerCase().trim();
+            const sindicato = document.getElementById('repFiltroSindicato').value.toLowerCase().trim();
+
+            const filtrados = comerciantes.filter(c => {
+                if(c.eliminado) return false;
+                if(tipo !== 'TODOS' && c.tipoPermiso !== tipo) return false;
+                if(estado !== 'TODOS' && c.estado !== estado) return false;
+                if(busqueda && !c.nombre.toLowerCase().includes(busqueda) && !c.rut.toLowerCase().includes(busqueda) && !c.ubicacion.toLowerCase().includes(busqueda)) return false;
+                if(sindicato && !(c.sindicato || '').toLowerCase().includes(sindicato)) return false;
+                return true;
+            });
+
+            const tbody = document.getElementById('tableReportesBody');
+            tbody.innerHTML = filtrados.map(c => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3 font-mono font-bold">${c.rut}</td>
+                    <td class="p-3 font-bold">${c.nombre}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded bg-blue-100 text-blue-900 text-[10px] font-bold">${(credencialesConfig[c.tipoPermiso] || {}).nombre || c.tipoPermiso}</span></td>
+                    <td class="p-3">${c.rubro}</td>
+                    <td class="p-3">${c.ubicacion}</td>
+                    <td class="p-3">${c.sindicato || 'Sin sindicato'}</td>
+                    <td class="p-3 font-mono">${c.vencimiento}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${c.estado === 'VIGENTE' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${c.estado.replace('_',' ')}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function exportarComerciantesExcel() {
+            const dataToExport = comerciantes.filter(c => !c.eliminado).map(c => ({
+                "RUT": c.rut,
+                "Nombre Comerciante": c.nombre,
+                "Número Permiso": c.numPermiso || '',
+                "Tipo de Permiso": (credencialesConfig[c.tipoPermiso] || {}).nombre || c.tipoPermiso,
+                "Teléfono": c.telefono || '',
+                "Dirección": c.direccion || '',
+                "Sindicato": c.sindicato || 'Sin Sindicato',
+                "Productos Autorizados / Rubro": c.rubro,
+                "Ubicación Autorizada": c.ubicacion,
+                "Estado Permiso": c.estado,
+                "Fecha Emisión": c.emision || '',
+                "Fecha Vencimiento": c.vencimiento
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Comerciantes_LosAngeles");
+
+            XLSX.writeFile(workbook, `Reporte_Comerciantes_Rentas_LosAngeles_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+
+        // MÓDULO DE NOTIFICACIONES AUTOMÁTICAS
+        function guardarConfigNotificaciones() {
+            const dias = document.getElementById('notifDiasPrevios').value;
+            alert(`Configuración guardada. Se enviarán avisos automáticos a los comerciantes ${dias} días antes del vencimiento.`);
+        }
+
+        function ejecutarEnvioNotificacionesAutomaticas() {
+            const hoy = new Date();
+            const diasPrevios = parseInt(document.getElementById('notifDiasPrevios').value) || 15;
+            const canal = document.getElementById('notifCanal').value;
+
+            let avisosGenerados = 0;
+
+            comerciantes.filter(c => !c.eliminado).forEach(c => {
+                const fechaVenc = new Date(c.vencimiento);
+                const diffTime = fechaVenc - hoy;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays <= diasPrevios && diffDays >= -30) {
+                    const msg = `Estimado(a) ${c.nombre}, su permiso municipal N° ${c.numPermiso || 'asignado'} se encuentra ${diffDays < 0 ? 'VENCIDO' : 'PRÓXIMO A VENCER'} (${c.vencimiento}). Favor contactar a la Sección de Rentas y Patentes de la Municipalidad de Los Ángeles para regularizar.`;
+                    
+                    notificacionesHistorial.unshift({
+                        fecha: new Date().toLocaleString('es-CL'),
+                        comerciante: c.nombre,
+                        telefono: c.telefono || 'Sin fono',
+                        canal: canal,
+                        mensaje: msg,
+                        estado: 'ENTREGADO (OK)'
+                    });
+                    avisosGenerados++;
+                }
+            });
+
+            saveState();
+            renderNotificacionesHistorial();
+            alert(`Proceso finalizado: Se enviaron e historializaron ${avisosGenerados} avisos automáticos de vencimiento.`);
+        }
+
+        function renderNotificacionesHistorial() {
+            const tbody = document.getElementById('tableNotificacionesBody');
+            tbody.innerHTML = notificacionesHistorial.map(n => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3 font-mono text-[10px]">${n.fecha}</td>
+                    <td class="p-3 font-bold">${n.comerciante}</td>
+                    <td class="p-3 font-mono">${n.telefono}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">${n.canal}</span></td>
+                    <td class="p-3 text-slate-600 max-w-xs truncate">${n.mensaje}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">${n.estado}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // Gestión de Usuarios
+        function toggleUserStatus(userId) {
+            const u = users.find(item => item.id === userId);
+            if(!u) return;
+            if(u.id === currentUser.id) {
+                alert('No puede desactivar su propia cuenta.');
+                return;
+            }
+            u.status = (u.status === 'ACTIVO') ? 'INACTIVO' : 'ACTIVO';
+            saveState();
+            renderUsuarios();
+        }
+
+        async function resetUserPasswordByAdmin(userId) {
+            const u = users.find(item => item.id === userId);
+            if(!u) return;
+            const newPass = prompt(`Ingrese nueva contraseña para ${u.name}:`, '123456');
+            if(newPass) {
+                u.passHash = await hashPassword(newPass.trim());
+                saveState();
+                alert(`Contraseña restablecida con éxito para ${u.name}.`);
+            }
+        }
+
+        function renderUsuarios() {
+            const tbody = document.getElementById('tableUsuariosBody');
+            tbody.innerHTML = users.map(u => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3 font-bold">${u.name}</td>
+                    <td class="p-3 font-mono">${u.login}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-900' : 'bg-blue-100 text-blue-900'}">${u.role}</span></td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${u.status === 'ACTIVO' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${u.status}</span></td>
+                    <td class="p-3 text-center space-x-1">
+                        <button onclick="toggleUserStatus(${u.id})" class="px-2 py-1 text-[10px] font-bold rounded ${u.status === 'ACTIVO' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">
+                            ${u.status === 'ACTIVO' ? 'Desactivar' : 'Activar'}
+                        </button>
+                        <button onclick="resetUserPasswordByAdmin(${u.id})" class="px-2 py-1 text-[10px] font-bold bg-blue-100 text-blue-900 rounded">Clave</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function openCreateUserModal() { document.getElementById('modalCrearUsuario').classList.remove('hidden'); }
+        function closeCreateUserModal() { document.getElementById('modalCrearUsuario').classList.add('hidden'); }
+        async function guardarNuevoUsuario(e) {
+            e.preventDefault();
+            const loginVal = document.getElementById('newLoginUser').value.trim();
+            const passVal = document.getElementById('newPassUser').value.trim();
+            const passHashVal = await hashPassword(passVal);
+
+            users.push({
+                id: users.length + 1,
+                name: document.getElementById('newNombreUser').value.trim(),
+                login: loginVal,
+                passHash: passHashVal,
+                role: document.getElementById('newRolUser').value,
+                status: 'ACTIVO'
+            });
+
+            saveState();
+            renderUsuarios();
+            closeCreateUserModal();
+            alert('Nuevo funcionario incorporado exitosamente.');
+        }
+
+        function openChangePasswordModal() {
+            toggleUserMenu();
+            document.getElementById('modalPassword').classList.remove('hidden');
+        }
+        function closeChangePasswordModal() { document.getElementById('modalPassword').classList.add('hidden'); }
+        async function actualizarPassword(e) {
+            e.preventDefault();
+            const act = document.getElementById('passActual').value;
+            const nue = document.getElementById('passNueva').value;
+            const hashAct = await hashPassword(act);
+
+            if(currentUser.passHash && hashAct !== currentUser.passHash) {
+                alert('La contraseña actual es incorrecta.');
+                return;
+            }
+
+            const newHash = await hashPassword(nue);
+            currentUser.passHash = newHash;
+            const idx = users.findIndex(u => u.id === currentUser.id);
+            if(idx !== -1) users[idx].passHash = newHash;
+            saveState();
+            closeChangePasswordModal();
+            alert('Contraseña actualizada correctamente.');
+        }
+
+        function toggleScanner() {
+            const container = document.getElementById('scannerContainer');
+            if(container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+                html5QrcodeScanner.render((qrCodeMessage) => {
+                    let rutExtraido = qrCodeMessage.trim();
+                    if(rutExtraido.includes('rut=')) {
+                        rutExtraido = rutExtraido.split('rut=')[1].split('&')[0];
+                    }
+                    document.getElementById('inputRutSearch').value = rutExtraido;
+                    html5QrcodeScanner.clear();
+                    container.classList.add('hidden');
+                    buscarPorRut();
+                });
+            } else {
+                if(html5QrcodeScanner) html5QrcodeScanner.clear();
+                container.classList.add('hidden');
+            }
+        }
+
+        function imprimirActaFiscalizacion() {
+            if(!currentSelectedComerciante) return;
+            const ultimaFisc = fiscalizaciones.find(f => f.comercianteRut === currentSelectedComerciante.rut) || {
+                id: 'FISC-2026-000', fecha: new Date().toLocaleString(), resultado: 'SIN REGISTRO', obs: 'Consulta de estado.'
+            };
+
+            document.getElementById('printFolio').innerText = 'FOLIO: ' + ultimaFisc.id;
+            document.getElementById('printFecha').innerText = 'Fecha: ' + ultimaFisc.fecha;
+            document.getElementById('printComercianteNom').innerText = currentSelectedComerciante.nombre;
+            document.getElementById('printComercianteRut').innerText = currentSelectedComerciante.rut;
+            document.getElementById('printComercianteTel').innerText = currentSelectedComerciante.telefono || 'No indicado';
+            document.getElementById('printComercianteDir').innerText = currentSelectedComerciante.direccion || 'No indicada';
+            document.getElementById('printComercianteSind').innerText = currentSelectedComerciante.sindicato || 'Sin sindicato';
+            document.getElementById('printComercianteRubro').innerText = currentSelectedComerciante.rubro;
+            document.getElementById('printComercianteUbicacion').innerText = currentSelectedComerciante.ubicacion;
+            document.getElementById('printInspectorNom').innerText = currentUser ? currentUser.name : 'Inspector Municipal';
+            document.getElementById('printResultadoEstado').innerText = ultimaFisc.resultado;
+            document.getElementById('printEstadoPatente').innerText = currentSelectedComerciante.estado;
+            document.getElementById('printObservaciones').innerText = ultimaFisc.obs;
+
+            window.print();
+        }
+
+        function installPWA() {
+            alert('Para instalar la PWA en tu smartphone:
+- Android (Chrome): Toca los 3 puntos superiores y selecciona "Instalar aplicación".
+- iPhone (Safari): Toca el botón Compartir y selecciona "Agregar a pantalla de inicio".');
+        }
+    </script>
+</body>
+</html>
